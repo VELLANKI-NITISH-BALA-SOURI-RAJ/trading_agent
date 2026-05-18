@@ -1,0 +1,16 @@
+# Virtual Environment
+venv/
+.venv/
+env/
+ENV/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment Secrets
+.env
+
+# Streamlit configuration and run logs
+.streamlit/
+.ipynb_checkpoints/
