@@ -55,9 +55,7 @@ This project demonstrates:
 - Risk management
 - Production-grade code structure
 
-## 📝 License
 
-MIT License - Built for CoinDCX Internship Application
 
 ## 👤 Author
 
