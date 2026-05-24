@@ -25,6 +25,16 @@ class CryptoDataFetcher:
         except Exception as e:
             print(f"Error initializing WazirX exchange: {e}")
             self.wazirx_exchange = None
+
+        # Fallback exchange for cloud environments (like Streamlit Cloud) that block Binance (e.g. Bybit or Kraken)
+        try:
+            self.fallback_exchange = ccxt.bybit({
+                'enableRateLimit': True,
+                'options': {'defaultType': 'spot'}
+            })
+        except Exception as e:
+            print(f"Error initializing fallback exchange Bybit: {e}")
+            self.fallback_exchange = None
     
     def get_ohlcv(self, symbol='BTC/USDT', timeframe='5m', limit=200):
         """Fetch OHLCV candlestick data"""
@@ -32,8 +42,11 @@ class CryptoDataFetcher:
         delay = 1.0
         exchange = self.wazirx_exchange if symbol.endswith('/INR') else self.exchange
         
+        # 1. Try primary exchange
         for attempt in range(retries):
             try:
+                if exchange is None:
+                    raise ValueError("Primary exchange is not initialized")
                 ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
                 df = pd.DataFrame(
                     ohlcv, 
@@ -42,13 +55,30 @@ class CryptoDataFetcher:
                 df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
                 return df
             except Exception as e:
+                print(f"Primary exchange attempt {attempt+1} failed for {symbol}: {e}")
                 if "2136" in str(e) or "Too many api request" in str(e) or "RateLimitExceeded" in str(e) or "429" in str(e):
-                    print(f"Rate limit hit for {symbol} on attempt {attempt+1}/{retries}. Retrying in {delay}s...")
                     time.sleep(delay)
                     delay *= 2.0
                 else:
-                    print(f"Error fetching OHLCV for {symbol} on attempt {attempt+1}: {e}")
                     time.sleep(1.0)
+                    
+        # 2. Try fallback exchange if primary failed and it's a USDT pair
+        if not symbol.endswith('/INR') and self.fallback_exchange:
+            print(f"Primary exchange failed for {symbol}. Trying fallback exchange (Bybit)...")
+            delay = 1.0
+            for attempt in range(retries):
+                try:
+                    ohlcv = self.fallback_exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+                    df = pd.DataFrame(
+                        ohlcv, 
+                        columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
+                    )
+                    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                    return df
+                except Exception as e:
+                    print(f"Fallback exchange attempt {attempt+1} failed for {symbol}: {e}")
+                    time.sleep(1.0)
+                    
         return None
     
     def calculate_indicators(self, df):
@@ -103,8 +133,11 @@ class CryptoDataFetcher:
         delay = 1.0
         exchange = self.wazirx_exchange if symbol.endswith('/INR') else self.exchange
         
+        # 1. Try primary exchange
         for attempt in range(retries):
             try:
+                if exchange is None:
+                    raise ValueError("Primary exchange is not initialized")
                 ticker = exchange.fetch_ticker(symbol)
                 return {
                     'symbol': symbol,
@@ -113,11 +146,28 @@ class CryptoDataFetcher:
                     'change_24h': ticker.get('percentage', 0.0) if ticker.get('percentage') is not None else 0.0
                 }
             except Exception as e:
+                print(f"Primary ticker attempt {attempt+1} failed for {symbol}: {e}")
                 if "2136" in str(e) or "Too many api request" in str(e) or "RateLimitExceeded" in str(e) or "429" in str(e):
-                    print(f"Rate limit hit for {symbol} ticker on attempt {attempt+1}/{retries}. Retrying in {delay}s...")
                     time.sleep(delay)
                     delay *= 2.0
                 else:
-                    print(f"Error fetching ticker for {symbol} on attempt {attempt+1}: {e}")
                     time.sleep(1.0)
+                    
+        # 2. Try fallback exchange if primary failed and it's a USDT pair
+        if not symbol.endswith('/INR') and self.fallback_exchange:
+            print(f"Primary ticker failed for {symbol}. Trying fallback exchange (Bybit)...")
+            delay = 1.0
+            for attempt in range(retries):
+                try:
+                    ticker = self.fallback_exchange.fetch_ticker(symbol)
+                    return {
+                        'symbol': symbol,
+                        'price': ticker.get('last', 0.0),
+                        'volume_24h': ticker.get('quoteVolume', 0.0) if ticker.get('quoteVolume') is not None else 0.0,
+                        'change_24h': ticker.get('percentage', 0.0) if ticker.get('percentage') is not None else 0.0
+                    }
+                except Exception as e:
+                    print(f"Fallback ticker attempt {attempt+1} failed for {symbol}: {e}")
+                    time.sleep(1.0)
+                    
         return None
